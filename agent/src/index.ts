@@ -15,6 +15,7 @@ import { TwitterClientInterface } from "@elizaos/client-twitter";
 import { AlexaClientInterface } from "@elizaos/client-alexa";
 import { MongoDBDatabaseAdapter } from "@elizaos/adapter-mongodb";
 import { DevaClientInterface } from "@elizaos/client-deva";
+import { hydrationDbPlugin } from "@elizaos/plugin-hydration-db";
 
 import { FarcasterClientInterface } from "@elizaos/client-farcaster";
 import { OmniflixPlugin } from "@elizaos/plugin-omniflix";
@@ -92,7 +93,6 @@ import { gitcoinPassportPlugin } from "@elizaos/plugin-gitcoin-passport";
 import { initiaPlugin } from "@elizaos/plugin-initia";
 import { imageGenerationPlugin } from "@elizaos/plugin-image-generation";
 import { lensPlugin } from "@elizaos/plugin-lens-network";
-import { litPlugin } from "@elizaos/plugin-lit";
 import { mindNetworkPlugin } from "@elizaos/plugin-mind-network";
 import { multiversxPlugin } from "@elizaos/plugin-multiversx";
 import { nearPlugin } from "@elizaos/plugin-near";
@@ -136,7 +136,6 @@ import { holdstationPlugin } from "@elizaos/plugin-holdstation";
 import { nvidiaNimPlugin } from "@elizaos/plugin-nvidia-nim";
 import { zxPlugin } from "@elizaos/plugin-0x";
 import { hyperbolicPlugin } from "@elizaos/plugin-hyperbolic";
-import { litPlugin } from "@elizaos/plugin-lit";
 import Database from "better-sqlite3";
 import fs from "fs";
 import net from "net";
@@ -1017,6 +1016,7 @@ export async function createAgent(
         character,
         // character.plugins are handled when clients are added
         plugins: [
+            hydrationDbPlugin,
             parseBooleanFromText(getSecret(character, "BITMIND")) &&
             getSecret(character, "BITMIND_API_TOKEN")
                 ? bittensorPlugin
@@ -1272,7 +1272,7 @@ export async function createAgent(
                 : null,
             getSecret(character, "FUNDING_PRIVATE_KEY") &&
             getSecret(character, "EVM_RPC_URL")
-                ? litPlugin
+                ? openaiPlugin
                 : null,
             getSecret(character, "ETHSTORAGE_PRIVATE_KEY")
                 ? ethstoragePlugin

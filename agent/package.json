@@ -150,6 +150,7 @@
         "@elizaos/plugin-zerion": "workspace:*",
         "@elizaos/plugin-zilliqa": "workspace:*",
         "@elizaos/plugin-zksync-era": "workspace:*",
+        "@elizaos/plugin-hydration-db": "workspace:*",
         "readline": "1.3.0",
         "whatwg-url": "7.1.0",
         "ws": "8.18.0",
