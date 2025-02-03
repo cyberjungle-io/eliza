@@ -990,9 +990,15 @@ export class AgentRuntime implements IAgentRuntime {
         state?: State,
         callback?: HandlerCallback,
     ): Promise<void> {
+        elizaLogger.debug(`[processActions] Starting to process actions for message:`, {
+            messageId: message.id,
+            messageSource: message.content.source,
+            responseCount: responses.length
+        });
+
         for (const response of responses) {
             if (!response.content?.action) {
-                elizaLogger.warn("No action found in the response content.");
+                elizaLogger.warn("[processActions] No action found in the response content.");
                 continue;
             }
 
@@ -1000,7 +1006,7 @@ export class AgentRuntime implements IAgentRuntime {
                 .toLowerCase()
                 .replace("_", "");
 
-            elizaLogger.success(`Normalized action: ${normalizedAction}`);
+            elizaLogger.debug(`[processActions] Processing action: ${normalizedAction}`);
 
             let action = this.actions.find(
                 (a: { name: string }) =>
@@ -1014,7 +1020,7 @@ export class AgentRuntime implements IAgentRuntime {
             );
 
             if (!action) {
-                elizaLogger.info("Attempting to find action in similes.");
+                elizaLogger.debug("[processActions] Attempting to find action in similes.");
                 for (const _action of this.actions) {
                     const simileAction = _action.similes.find(
                         (simile) =>
@@ -1029,7 +1035,7 @@ export class AgentRuntime implements IAgentRuntime {
                     if (simileAction) {
                         action = _action;
                         elizaLogger.success(
-                            `Action found in similes: ${action.name}`,
+                            `[processActions] Action found in similes: ${action.name}`,
                         );
                         break;
                     }
@@ -1038,26 +1044,62 @@ export class AgentRuntime implements IAgentRuntime {
 
             if (!action) {
                 elizaLogger.error(
-                    "No action found for",
+                    "[processActions] No action found for",
                     response.content.action,
                 );
                 continue;
             }
 
             if (!action.handler) {
-                elizaLogger.error(`Action ${action.name} has no handler.`);
+                elizaLogger.error(`[processActions] Action ${action.name} has no handler.`);
                 continue;
             }
 
             try {
                 elizaLogger.info(
-                    `Executing handler for action: ${action.name}`,
+                    `[processActions] Executing handler for action: ${action.name}`,
                 );
+
+                // If this is a direct message and the action is EXECUTE_QUERY
+                if (message.content.source === 'direct' && 
+                    (action.name === 'EXECUTE_QUERY' || action.similes.includes('EXECUTE_QUERY'))) {
+                    
+                    elizaLogger.debug(`[processActions] Direct message detected for EXECUTE_QUERY, generating SQL...`);
+                    
+                    // Generate SQL query using LLM
+                    const sqlContext = composeContext({
+                        state: {
+                            ...state,
+                            text: message.content.text
+                        },
+                        template: this.character.templates?.sqlGenerationTemplate || 
+                                 'You are a SQL query generator. Generate a SQL query for the following request. Return ONLY the SQL query with no other text.\n\nRequest: {{text}}'
+                    });
+
+                    elizaLogger.debug(`[processActions] Calling LLM to generate SQL query for text: ${message.content.text}`);
+                    const sqlResponse = await generateText({
+                        runtime: this,
+                        context: sqlContext,
+                        modelClass: ModelClass.LARGE
+                    });
+                    elizaLogger.debug(`[processActions] LLM generated SQL response:`, sqlResponse);
+
+                    // Update message with SQL query
+                    message.content.response = {
+                        content: {
+                            text: sqlResponse
+                        }
+                    };
+                }
+
+                elizaLogger.debug(`[processActions] Calling action handler...`);
                 await action.handler(this, message, state, {}, callback);
+                elizaLogger.debug(`[processActions] Action handler completed`);
             } catch (error) {
-                elizaLogger.error(error);
+                elizaLogger.error(`[processActions] Error executing action:`, error);
             }
         }
+        elizaLogger.debug(`[processActions] Finished processing all actions`);
     }
 
     /**

@@ -744,6 +744,7 @@ export type Character = {
         shouldRespondTemplate?: TemplateType;
         continueMessageHandlerTemplate?: TemplateType;
         evaluationTemplate?: TemplateType;
+        sqlGenerationTemplate?: TemplateType;
         twitterSearchTemplate?: TemplateType;
         twitterActionTemplate?: TemplateType;
         twitterPostTemplate?: TemplateType;

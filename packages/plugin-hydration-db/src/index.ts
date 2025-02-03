@@ -28,59 +28,90 @@ const executeQuery: Action = {
   validate: async (runtime: IAgentRuntime, message: Memory) => {
     console.log('[executeQuery] Validating action...');
     console.log('[executeQuery] Message content:', JSON.stringify(message.content, null, 2));
-    
-    // Allow both direct messages and SQL queries to pass validation
     return true;
   },
   handler: async (runtime: IAgentRuntime, message: Memory, state?: State, options?: any, callback?: HandlerCallback) => {
     console.log('[executeQuery] === Executing query ===');
-    console.log('[executeQuery] Raw message:', JSON.stringify(message, null, 2));
+    console.log('[executeQuery] Message source:', message.content.source);
+    console.log('[executeQuery] Message response:', JSON.stringify(message.content.response, null, 2));
     
     try {
-      // Check if this is a direct message
-      if (message.content.source === 'direct') {
-        console.log('[executeQuery] Received direct message - waiting for LLM response');
+      // If this is a direct message from user (not LLM response)
+      if (message.content.source === 'direct' && !message.content.response) {
+        console.log('[executeQuery] Direct message received - returning to let LLM generate SQL');
         return {
-          text: 'Processing query...',
+          text: message.content.text,
           content: {
             status: 'pending',
-            message: 'Waiting for query generation'
+            message: 'Processing query...'
           }
         };
       }
 
-      // Extract SQL query from the message
-      let sqlQuery = message.content.text;
-      console.log('[executeQuery] Initial SQL query:', sqlQuery);
+      // Extract SQL query from message
+      let sqlQuery: string | undefined;
       
-      // If it's not a SQL query, try to get it from the response
-      if (!sqlQuery?.toLowerCase().includes('select')) {
-        console.log('[executeQuery] Not a SQL query, checking response content');
-        sqlQuery = message.content.response?.content?.text;
+      if (message.content.response?.content?.text) {
+        // Extract from LLM response
+        sqlQuery = message.content.response.content.text.trim();
+        console.log('[executeQuery] Raw LLM response:', sqlQuery);
+        
+        // Try to extract SQL if it's embedded in other text
+        const sqlMatch = sqlQuery.match(/SELECT[\s\S]*?(?:;|\n*$)/i);
+        if (sqlMatch) {
+          sqlQuery = sqlMatch[0].trim();
+          console.log('[executeQuery] Extracted SQL query:', sqlQuery);
+        } else {
+          // If no SELECT found, try to use the entire response if it looks like SQL
+          if (sqlQuery.toUpperCase().includes('SELECT') && 
+              sqlQuery.toUpperCase().includes('FROM')) {
+            console.log('[executeQuery] Using full response as SQL:', sqlQuery);
+          } else {
+            console.log('[executeQuery] No valid SQL found in response');
+            return {
+              text: 'No valid SQL query found in response',
+              content: {
+                status: 'error',
+                error: 'No valid SQL query found in response'
+              }
+            };
+          }
+        }
+        
+        if (!sqlQuery.toUpperCase().startsWith('SELECT')) {
+          console.log('[executeQuery] Invalid SQL - must start with SELECT');
+          return {
+            text: 'Invalid SQL query - must start with SELECT',
+            content: {
+              status: 'error',
+              error: 'Generated query must start with SELECT'
+            }
+          };
+        }
+      } else if (message.content.text) {
+        sqlQuery = message.content.text.trim();
+        console.log('[executeQuery] Using direct text as SQL:', sqlQuery);
       }
-      
-      console.log('[executeQuery] Found SQL query:', sqlQuery);
-      
+
       if (!sqlQuery || typeof sqlQuery !== 'string' || !sqlQuery.toLowerCase().includes('select')) {
-        throw new Error('Invalid or missing SQL query in message');
+        console.log('[executeQuery] Invalid or missing SQL query');
+        return {
+          text: 'Invalid or missing SQL query',
+          content: {
+            status: 'error',
+            error: 'Invalid or missing SQL query'
+          }
+        };
       }
 
-      // Clean the query string
+      // Clean and execute the query
       const query = sqlQuery.trim();
-      console.log('[executeQuery] Cleaned query:', query);
-      console.log('[executeQuery] Query type:', typeof query);
-      console.log('[executeQuery] Query length:', query.length);
-
-      // Execute the query
-      console.log('[executeQuery] Attempting to execute query...');
-      console.log('[executeQuery] EXACT QUERY BEING SENT TO POSTGRES:', JSON.stringify(query));
+      console.log('[executeQuery] Final SQL query to execute:', query);
       const result = await pool.query(query);
       console.log('[executeQuery] Query executed successfully');
-      console.log('[executeQuery] Result:', JSON.stringify(result, null, 2));
       
       const response = {
         text: JSON.stringify({
-          query: query,
           rows: result.rows,
           rowCount: result.rowCount
         }),
@@ -93,25 +124,25 @@ const executeQuery: Action = {
       };
 
       if (callback) {
+        console.log('[executeQuery] Calling callback with response');
         await callback(response);
       }
 
       return response;
+
     } catch (error) {
-      console.error('[executeQuery] Error executing query:', error);
-      console.error('[executeQuery] Error stack:', error.stack);
+      console.error('[executeQuery] Error:', error);
       
       const errorResponse = {
         text: `Error executing query: ${error.message}`,
         content: { 
           status: 'error',
-          error: error.message,
-          query: message.content.response?.content?.text || 'No query found',
-          stack: error.stack
+          error: error.message
         }
       };
 
       if (callback) {
+        console.log('[executeQuery] Calling callback with error response');
         await callback(errorResponse);
       }
 
@@ -141,13 +172,26 @@ const testDbConnection: Action = {
     console.log('[testDbConnection] === Testing connection ===');
     
     try {
-      // Test the connection with a simple query
-      await pool.query('SELECT 1');
-      console.log('[testDbConnection] Connection successful');
+      // Test the connection with the specific query
+      console.log("*****************************************");
+      const query = 'SELECT number, onfinalize FROM blocks ORDER BY number ASC LIMIT 5';
+      console.log('[testDbConnection] Executing query:', query);
+      const result = await pool.query(query);
+      console.log('[testDbConnection] Query successful');
+      console.log('[testDbConnection] Result:', JSON.stringify(result, null, 2));
       
       const response = {
-        text: 'Database connection successful',
-        content: { status: 'success' }
+        text: JSON.stringify({
+          query: query,
+          rows: result.rows,
+          rowCount: result.rowCount
+        }),
+        content: { 
+          status: 'success',
+          rows: result.rows,
+          rowCount: result.rowCount,
+          fields: result.fields?.map(f => f.name)
+        }
       };
 
       if (callback) {
@@ -156,13 +200,14 @@ const testDbConnection: Action = {
 
       return response;
     } catch (error) {
-      console.error('[testDbConnection] Connection error:', error);
+      console.error('[testDbConnection] Error:', error);
       
       const errorResponse = {
-        text: 'Database connection failed',
+        text: `Query failed: ${error.message}`,
         content: { 
           status: 'error',
-          error: error.message
+          error: error.message,
+          stack: error.stack
         }
       };
 
